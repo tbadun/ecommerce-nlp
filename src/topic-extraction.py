@@ -84,7 +84,7 @@ from scipy.stats import randint, rv_continuous
 
 np.random.seed(38)
 
-def performGridSearch(model,X,y):
+def performRandSearch(model,X,y):
     if isinstance(model,DecisionTreeClassifier):
         print("DecisionTreeClassifier")
         param_grid = {'criterion':['gini','entropy'],
@@ -107,12 +107,12 @@ def performGridSearch(model,X,y):
             'learning_rate':rv_continuous(a=1e-5,b=1),
             'n_estimators': randint(5,200), 
             'max_features': randint(5,500)}
-    grid_search = RandomizedSearchCV(model, param_grid, cv=5,
+    rand_search = RandomizedSearchCV(model, param_grid, cv=5,
                             scoring='neg_mean_squared_error', 
                             random_state=55,verbose=10,
                             n_jobs=2,n_iter=10)
-    a = grid_search.fit(X, y)
-    return grid_search.best_params_, grid_search.best_estimator_
+    a = rand_search.fit(X, y)
+    return rand_search.best_params_, rand_search.best_estimator_
 
 models = {
     "rfc":RandomForestClassifier(random_state=42),
@@ -127,7 +127,7 @@ for k,v in models.items():
     print(k)
     if k == "bag":
         models[k] = BaggingClassifier(DecisionTreeClassifier(random_state=42,**best_params["dtc"]["param"]), n_jobs=2, random_state=42)
-    param,est = performGridSearch(v,X_train,y_train)
+    param,est = performRandSearch(v,X_train,y_train)
     best_params[k] = dict(param=param,est=est)
 
 #%%
