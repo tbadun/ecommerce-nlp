@@ -76,59 +76,57 @@ X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_s
 
 # %%
 # GRID SEARCH
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.ensemble import BaggingClassifier, RandomForestClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from IPython.display import clear_output
+from scipy.stats import randint, rv_continuous
+
+np.random.seed(38)
 
 def performGridSearch(model,X,y):
-    if isinstance(model,DecisionTreeClassifier): # 50 = 2 x 5 x 5
+    if isinstance(model,DecisionTreeClassifier):
         print("DecisionTreeClassifier")
-        param_grid = [
-            {'criterion':['gini','entropy'],
-            'max_depth':[5,10,50,100,150]}
-        ]
-    elif isinstance(model,BaggingClassifier): # 800 = 2 x 5 x 4 x 4 x 5
+        param_grid = {'criterion':['gini','entropy'],
+            'max_depth':randint(5,200)}
+    elif isinstance(model,BaggingClassifier):
         print("BaggingClassifier")
-        param_grid = [
-            {'base_estimator__criterion':['gini','entropy'],
-            'base_estimator__max_depth':[5,10,50,100,150], 
-            'max_samples' : [0.05, 0.1, 0.2, 0.5],
-            'n_estimators': [10, 50, 100, 200]}
-        ]
-    elif isinstance(model,RandomForestClassifier): # 160 = 2 x 4 x 4 x 5
+        param_grid = {'base_estimator__criterion':['gini','entropy'],
+            'base_estimator__max_depth':randint(5,200), 
+            'max_samples' : rv_continuous(a=0.01,b=1),
+            'max_features': randint(5,500),
+            'n_estimators': randint(5,200)}
+    elif isinstance(model,RandomForestClassifier):
         print("RandomForestClassifier")
-        param_grid = [
-            {'criterion':['gini','entropy'],
-            'n_estimators': [10, 50, 100, 200], 
-            'max_features': [10,100,1000,"auto"]}# ,
-        ]
-    elif isinstance(model,GradientBoostingClassifier): # 640 = 2 x 4 x 4 x 4 x 5
+        param_grid = {'criterion':['gini','entropy'],
+            'n_estimators': randint(5,200), 
+            'max_features': randint(5,500)}
+    elif isinstance(model,GradientBoostingClassifier):
         print("GradientBoostingClassifier")
-        param_grid = [
-            {'loss':['deviance', 'exponential'],
-            'learning_rate':[0.1,1e-2,1e-3,1e-4],
-            'n_estimators': [10, 50, 100, 200], 
-            'max_features': [10,100,1000,"auto"]}
-        ]
-    grid_search = GridSearchCV(model, param_grid, cv=5,
+        param_grid = {'loss':['deviance', 'exponential'],
+            'learning_rate':rv_continuous(a=1e-5,b=1),
+            'n_estimators': randint(5,200), 
+            'max_features': randint(5,500)}
+    grid_search = RandomizedSearchCV(model, param_grid, cv=5,
                             scoring='neg_mean_squared_error', 
-                            return_train_score=True,verbose=10,
-                            n_jobs=4)
+                            random_state=55,verbose=10,
+                            n_jobs=2,n_iter=10)
     a = grid_search.fit(X, y)
     return grid_search.best_params_, grid_search.best_estimator_
 
 models = {
-    "bag":BaggingClassifier(DecisionTreeClassifier(random_state=42), n_jobs=-1, random_state=42),
     "rfc":RandomForestClassifier(random_state=42),
     "gbc":GradientBoostingClassifier(random_state=42),
-    "dtc":DecisionTreeClassifier(random_state=42)
+    "dtc":DecisionTreeClassifier(random_state=42),
+    "bag":BaggingClassifier(DecisionTreeClassifier(random_state=42), n_jobs=2, random_state=42)
 }
 best_params = dict()
 
 for k,v in models.items():
     clear_output()
     print(k)
+    if k == "bag":
+        models[k] = BaggingClassifier(DecisionTreeClassifier(random_state=42,**best_params["dtc"]["param"]), n_jobs=2, random_state=42)
     param,est = performGridSearch(v,X_train,y_train)
     best_params[k] = dict(param=param,est=est)
 
@@ -149,14 +147,14 @@ for k,v in best_params:
     row.append(recall_score(y_test,test_pred))
     accuracy.append(row)
 
+
+# %%
 acc = pd.DataFrame(accuracy,
                 columns=["train_precision",
                         "train_recall",
                         "test_precision",
                         "test_recall"],
-                index=list(models.keys()))
-
-# %%
+                index=list(models.keys())) # double check this is the rigt orientation
 acc
 
 #%%
