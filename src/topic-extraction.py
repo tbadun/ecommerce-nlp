@@ -16,7 +16,10 @@ df = df[[i is not np.nan for i in df.review]]
 # NOTE: DOWNLOAD corpora/wordnet AND models/punkt
 from nltk.stem import WordNetLemmatizer, PorterStemmer
 from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
 import re 
+
+stop_words = set(stopwords.words('english'))
 
 def lemmatizeSentence(sentence):
     token_words=word_tokenize(sentence)
@@ -24,7 +27,7 @@ def lemmatizeSentence(sentence):
     stem_sentence=[]
     for word in token_words:
         word2 = re.sub('[^A-Za-z0-9$]+',"",word)
-        if len(word2)>0 and not any(i.isnumeric() for i in word2):
+        if (len(word2)>0) and (not any(i.isnumeric() for i in word2)) and (word not in stop_words):
             stem_sentence.append(porter.stem(word2))
             stem_sentence.append(" ")
     return "".join(stem_sentence)
@@ -75,7 +78,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y,test_size=0.2, random_s
 # For best try StatifiedKFold # from sklearn.model_selection import StratifiedKFold
 
 # %%
-# GRID SEARCH
+# RANDOM SEARCH
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.ensemble import BaggingClassifier, RandomForestClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -119,19 +122,24 @@ models = {
     "gbc":GradientBoostingClassifier(random_state=42),
     "bag":BaggingClassifier(DecisionTreeClassifier(random_state=42), n_jobs=2, random_state=42)
 }
-# best_params = dict()
+best_params = dict()
 
 for k,v in models.items():
-    if k not in ["rfc","dtc","gbc"]:
-        clear_output()
-        print(k)
-        if k == "bag":
-            models[k] = BaggingClassifier(DecisionTreeClassifier(random_state=42,**best_params["dtc"]["param"]), n_jobs=2, random_state=42)
-            mdl = models[k]
-        else:
-            mdl = v
-        param,est = performRandSearch(mdl,X_train,y_train)
-        best_params[k] = dict(param=param,est=est)
+    clear_output()
+    print(k)
+    if k == "bag":
+        models[k] = BaggingClassifier(DecisionTreeClassifier(random_state=42,**best_params["dtc"]["param"]), n_jobs=2, random_state=42)
+        mdl = models[k]
+    else:
+        mdl = v
+    param,est = performRandSearch(mdl,X_train,y_train)
+    best_params[k] = dict(param=param,est=est)
+
+# #%%
+# param = model.get_params()
+# param['verbose']=10
+# model = GradientBoostingClassifier(**param)
+# a = model.fit(X_train,y_train)
 
 #%%
 # BEST ACCURACY
@@ -167,12 +175,14 @@ from sklearn.metrics import precision_recall_curve
 BEST = "gbc"
 
 model = best_params[BEST]["est"]
-test_pred = model.predict(X_test)
-precisions, recalls, thresholds = precision_recall_curve(y_test, test_pred)
+
 
 # %%
 # PRECISION/RECALL PLOT OF BEST
 import matplotlib.pyplot as plt
+
+test_pred = model.predict(X_test)
+precisions, recalls, thresholds = precision_recall_curve(y_test, test_pred)
 
 def plot_precision_vs_recall(prec, rec):
     plt.plot(rec, prec, "b-", linewidth=2)
@@ -186,12 +196,13 @@ plt.savefig("../out/prec_recall_best_test.png")
 plt.show()
 
 # %%
-train_pred = model.predict(X_train)
-precisions2, recalls2, thresholds2 = precision_recall_curve(y_train, train_pred)
 
 # %%
 # PRECISION/RECALL PLOT OF BEST
 import matplotlib.pyplot as plt
+
+train_pred = model.predict(X_train)
+precisions2, recalls2, thresholds2 = precision_recall_curve(y_train, train_pred)
 
 plt.figure(figsize=(8, 6))
 plot_precision_vs_recall(precisions2, recalls2)
@@ -233,15 +244,45 @@ def clustering_on_wordvecs(word_vectors, num_clusters):
     kmeans_clustering = KMeans(n_clusters = num_clusters, init='k-means++')
     idx = kmeans_clustering.fit_predict(word_vectors)
     
-    return kmeans_clustering.cluster_centers_, idx
+    return kmeans_clustering.cluster_centers_, idx, kmeans_clustering
 
-centers, clusters = clustering_on_wordvecs(sim_array, 100)
+centers, clusters, cat_model = clustering_on_wordvecs(sim_array, 100)
 centroid_map = dict(zip(word_model.wv.index2word, clusters))
 top_words = get_top_words(word_model.wv.index2word, 50, centers, sim_array)
 
 top_words
 
+# # %%
+# pickle.dump(word_model, open("../out/term_clusters_100.pkl", "wb"))
+
 # %%
-pickle.dump(word_model, open("../out/term_clusters_100.pkl", "wb"))
+# prior: make table with top ~30 terms (onehot), filter columns, rating, category
+#        make dict of importance {"term":<scaled_value>}
+# top_scores = sorted(model.feature_importances_)[-30:]
+by_term = pd.DataFrame([vocab.columns,clusters,model.feature_importances_],index=["term","cat","imp"]).T.sort_values("imp",ascending=False)[:30]
+
+#%%
+terms30 = (vocab[list(by_term["term"])]/vocab[list(by_term["term"])]).fillna(0).astype(int)
+by_comment = pd.merge(df[["rating","review","recomend","division","department","class"]],terms30,
+                how="inner",left_index=True, right_index=True,suffixes=("","_term")) \
+                .reset_index().rename({"index":"comment_id"},axis=1)
+# %%
+comment_term = by_comment.set_index(["comment_id","review","rating","recomend","division","department","class"]).stack().reset_index().rename({"level_7":"term",0:"incl"},axis=1)
+comment_term = comment_term[comment_term["incl"]==1].drop("incl",axis=1)
+
+cat_names = {
+    1:"Basics",
+    33:"Traveling",
+    43:"Confusion",
+    47:"Designers",
+    52:"Hashtags",
+    99:"Simplicity" 
+}
+
+all_terms = pd.merge(comment_term,by_term,on="term")
+all_terms['cat'] = all_terms['cat'].apply(lambda x: cat_names[x])
+
+# %%
+all_terms.to_csv("../out/term_cat_details.csv")
 
 # %%
