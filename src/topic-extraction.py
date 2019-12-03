@@ -201,7 +201,7 @@ plt.show()
 
 # %%
 import pickle
-pkl_filename = "../out/"+BEST+"_model_best.pckl"  
+pkl_filename = "../out/"+BEST+"_model_best.pkl"  
 with open(pkl_filename, 'wb') as file:  
     pickle.dump(model, file)
 
@@ -216,18 +216,6 @@ sim_array = word_model.wv.syn0
 
 # %%
 from sklearn.cluster import KMeans
-
-def clustering_on_wordvecs(word_vectors, num_clusters):
-    # Initalize a k-means object and use it to extract centroids
-    kmeans_clustering = KMeans(n_clusters = num_clusters, init='k-means++')
-    idx = kmeans_clustering.fit_predict(word_vectors)
-    
-    return kmeans_clustering.cluster_centers_, idx
-
-centers, clusters = clustering_on_wordvecs(sim_array, 50)
-centroid_map = dict(zip(word_model.wv.index2word, clusters))
-
-# %%
 from sklearn.neighbors import KDTree
 
 def get_top_words(index2word, k, centers, wordvecs):
@@ -240,7 +228,20 @@ def get_top_words(index2word, k, centers, wordvecs):
     df = pd.DataFrame(closest_words)
     df.index = df.index+1
     return df
+def clustering_on_wordvecs(word_vectors, num_clusters):
+    # Initalize a k-means object and use it to extract centroids
+    kmeans_clustering = KMeans(n_clusters = num_clusters, init='k-means++')
+    idx = kmeans_clustering.fit_predict(word_vectors)
+    
+    return kmeans_clustering.cluster_centers_, idx
 
-top_words = get_top_words(word_model.wv.index2word, 5000, centers, sim_array)
+centers, clusters = clustering_on_wordvecs(sim_array, 100)
+centroid_map = dict(zip(word_model.wv.index2word, clusters))
+top_words = get_top_words(word_model.wv.index2word, 50, centers, sim_array)
+
+top_words
+
+# %%
+pickle.dump(word_model, open("../out/term_clusters_100.pkl", "wb"))
 
 # %%
