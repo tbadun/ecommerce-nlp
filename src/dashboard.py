@@ -30,6 +30,7 @@ colors = {
     'accent1': '#1D3236',
     'accent2': '#1D7874',
     'light': '#FCFCFC',
+    'medlight': '#C0C0C0',
     'medium': '#757575',
     'dark': '#222222'
 }
@@ -69,13 +70,17 @@ def get_term_chart(div,dept,cls,rec):
         title='Importance of Terms for Recommendations v. Ratings',
         xaxis=dict(
             title='Importance of term in model',
+            rangemode="tozero",
             gridwidth=2,
         ),
         yaxis=dict(
             title='Term frequency for selected products',
+            rangemode="tozero",
             gridwidth=2,
         ),
-        font= {'color': colors['medium']}
+        font= {'color': colors['medium']},
+        autosize=True,
+        paper_bgcolor=colors['light']
     )
     return [fig]
     # prior: make table with top ~30 terms (onehot), filter columns, rating, category
@@ -115,7 +120,9 @@ def get_rating_recommendation_data(div=None,dept=None,cls=None,rec=None):
                             "rangemode":"tozero"},
                         plot_bgcolor=colors['light'],
                 paper_bgcolor=colors['light'],
-                font= {'color': colors['medium']})
+                font= {'color': colors['medium']},
+                legend_orientation="h",
+                autosize=True)
     return [fig]
 
 def init_rating_recommendation_data():
@@ -133,9 +140,10 @@ def init_rating_recommendation_data():
                         xaxis={"title":"Rating"},
                         yaxis={"title":"Number of Reviews",
                             "rangemode":"tozero"},
-                        plot_bgcolor=colors['light'],
                 paper_bgcolor=colors['light'],
-                font= {'color': colors['medium']})
+                font= {'color': colors['medium']},
+                legend_orientation="h",
+        autosize=True)
     return fig
 
 app.layout = html.Div([
@@ -204,40 +212,73 @@ app.layout = html.Div([
                     color=colors['dark'],
                     padding="2%"
             )
-        ),
-
-        # html.Div([html.Label('Rating'),
-        # dcc.RangeSlider(
-        #     id="rating-slider",
-        #     marks={i: '{}'.format(i) for i in range(1,6)},
-        #     min=1,
-        #     max=5,
-        #     value=[1,5],
-        #     included=True
-        # )],style=dict(
-        #             width='80%',
-        #             horizonalAlign="middle",
-        #             color=colors['light']
-        #     ))
+        )
     ], style = dict(
             width = '20%',
             display = "inline-block",
-            backgroundColor=colors['dark'],
+            backgroundColor=colors['accent1'],
             color = colors['light']
         )
     ),
     html.Div([
         html.H1("E-Commerce Product Review Dashboard"),
-        dcc.Graph(
-            id='ratings-graph',
-            figure=init_rating_recommendation_data()
-        ),
-        dcc.Graph(
-            id='term-graph',
-            figure=init_term_chart()
-        )
+        
+        html.Div([
+                html.Div([
+                    html.H2('Text Analytics for Clothing Reviews'),
+                    html.H3('Goal'),
+                    html.P("""The goal of this project was to develop a small dashboard leveraging 
+                                Machine Learning to garner quanitified details from text reviews on 
+                                an e-commerce website. """),
+                    html.H3('Modeling'),
+                    html.P("""I wanted to try and find the best possible model for predicting whether 
+                                an item was likely to be recommended given an open-ended review. After 
+                                cleaning the text and calulating distances, there were too many features 
+                                to manually evaluate so I performed a random search across 4 different 
+                                types of classification models:"""),
+                    dcc.Markdown("""
+                    1. Random Forest 
+                    2. Decision Tree 
+                    3. Gradient Boosting
+                    4. Gradient Boosting with Bagging"""),
+                    html.P("""The best performance among the trained models was the Gradient Boosted Classifier 
+                    with 89.14% precision and 95.63% recall as my target was balance. In this dashboard the 
+                    model is actually used to gauge the importance of certain terms relative to their score.
+                    I then clustered the lemmatized terms using Kmeans in order to categorize the drivers."""),
+                    html.H3('Results'),
+                    html.P("""The filters on the left apply to both of the graphs. The bar chart shows the 
+                    number of recommendations/non-recommendations relative to the rating given by the individual.
+                    The bubble chart shows the top 30 drivers. The x-axis is the aforementioned importance, the y-axis 
+                    is the frequency of the lemmatized term across reviews for the filtered products. The colour
+                    is determined by the category the term falls in.""")
+                ], className="six columns",style={"width":'60%',
+                                                'height':"20%",
+                                                'display': 'inline-block',
+                                                'textAlign':'left',
+                                                'backgroundColor':colors['medlight'],
+                                                'color':colors['dark'],
+                                                "padding-left":"4%",
+                                                "padding-right":"4%",
+                                                "padding-top":"2%",
+                                                "padding-bottom":"2%"}),
+
+                html.Div([
+                    dcc.Graph(
+                            id='ratings-graph',
+                            figure=init_rating_recommendation_data(),
+                            style={"width":'100%','height':"30%"}
+                    )
+                ], className="six columns",style={"width":'30%','height':"100%",'display': 'inline-block','float':'right','backgroundColor':colors['light']}),
+            ], className="row", style={'backgroundColor':colors['light']}),
+        html.Div([
+            dcc.Graph(
+                id='term-graph',
+                figure=init_term_chart(),
+                style={"width":'100%','display': 'inline-block'}
+            )
+        ])
     ], style = dict(
-            width = '70%',
+            width = '80%',
             display = "inline-block",
             backgroundColor=colors['light'],
             color = colors['dark'],
@@ -246,9 +287,13 @@ app.layout = html.Div([
         ))
 ],
 style = dict(
-    backgroundColor=colors['dark'],
+    backgroundColor=colors['accent1'],
     color = colors['light'])
 )
+
+app.css.append_css({
+    'external_url': 'https://codepen.io/chriddyp/pen/bWLwgP.css'
+})
 
 @app.callback(
     [Output('ratings-graph', 'figure')],
