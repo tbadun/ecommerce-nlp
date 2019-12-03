@@ -80,7 +80,7 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.ensemble import BaggingClassifier, RandomForestClassifier, GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from IPython.display import clear_output
-from scipy.stats import randint, rv_continuous
+from scipy.stats import randint, rv_continuous, uniform
 
 np.random.seed(38)
 
@@ -92,9 +92,7 @@ def performRandSearch(model,X,y):
     elif isinstance(model,BaggingClassifier):
         print("BaggingClassifier")
         param_grid = {'base_estimator__criterion':['gini','entropy'],
-            'base_estimator__max_depth':randint(5,200), 
-            'max_samples' : rv_continuous(a=0.01,b=1),
-            'max_features': randint(5,500),
+            'max_samples' : uniform(),
             'n_estimators': randint(5,200)}
     elif isinstance(model,RandomForestClassifier):
         print("RandomForestClassifier")
@@ -104,9 +102,10 @@ def performRandSearch(model,X,y):
     elif isinstance(model,GradientBoostingClassifier):
         print("GradientBoostingClassifier")
         param_grid = {'loss':['deviance', 'exponential'],
-            'learning_rate':rv_continuous(a=1e-5,b=1),
-            'n_estimators': randint(5,200), 
-            'max_features': randint(5,500)}
+            'learning_rate': uniform(),
+            'n_estimators': randint(5,200),
+            'subsample': uniform(),
+            'max_depth':randint(4,10)}
     rand_search = RandomizedSearchCV(model, param_grid, cv=5,
                             scoring='neg_mean_squared_error', 
                             random_state=55,verbose=10,
@@ -116,19 +115,23 @@ def performRandSearch(model,X,y):
 
 models = {
     "rfc":RandomForestClassifier(random_state=42),
-    "gbc":GradientBoostingClassifier(random_state=42),
     "dtc":DecisionTreeClassifier(random_state=42),
+    "gbc":GradientBoostingClassifier(random_state=42),
     "bag":BaggingClassifier(DecisionTreeClassifier(random_state=42), n_jobs=2, random_state=42)
 }
-best_params = dict()
+# best_params = dict()
 
 for k,v in models.items():
-    clear_output()
-    print(k)
-    if k == "bag":
-        models[k] = BaggingClassifier(DecisionTreeClassifier(random_state=42,**best_params["dtc"]["param"]), n_jobs=2, random_state=42)
-    param,est = performRandSearch(v,X_train,y_train)
-    best_params[k] = dict(param=param,est=est)
+    if k not in ["rfc","dtc","gbc"]:
+        clear_output()
+        print(k)
+        if k == "bag":
+            models[k] = BaggingClassifier(DecisionTreeClassifier(random_state=42,**best_params["dtc"]["param"]), n_jobs=2, random_state=42)
+            mdl = models[k]
+        else:
+            mdl = v
+        param,est = performRandSearch(mdl,X_train,y_train)
+        best_params[k] = dict(param=param,est=est)
 
 #%%
 # BEST ACCURACY
@@ -136,9 +139,9 @@ for k,v in models.items():
 from sklearn.metrics import precision_score, recall_score
 
 accuracy = []
-for k,v in best_params:
+for k,v in best_params.items():
     row = []
-    print("%s: %s".format(k,str(v['param'])))
+    print(": ".join(k,str(v['param'])))
     train_pred = v['est'].predict(X_train)
     test_pred = v['est'].predict(X_test)
     row.append(precision_score(y_train,train_pred))
@@ -161,21 +164,83 @@ acc
 # SELECT BEST
 from sklearn.metrics import precision_recall_curve
 
+BEST = "gbc"
+
 model = best_params[BEST]["est"]
 test_pred = model.predict(X_test)
-precisions, recalls, thresholds = precision_recall_curve(y_train, test_pred)
+precisions, recalls, thresholds = precision_recall_curve(y_test, test_pred)
 
 # %%
 # PRECISION/RECALL PLOT OF BEST
 import matplotlib.pyplot as plt
 
-def plot_precision_vs_recall(precisions, recalls):
-    plt.plot(recalls, precisions, "b-", linewidth=2)
+def plot_precision_vs_recall(prec, rec):
+    plt.plot(rec, prec, "b-", linewidth=2)
     plt.xlabel("Recall", fontsize=16)
     plt.ylabel("Precision", fontsize=16)
-    plt.axis([0, 1, 0, 1])
+    # plt.axis([0, 1, 0, 1])
 
 plt.figure(figsize=(8, 6))
 plot_precision_vs_recall(precisions, recalls)
+plt.savefig("../out/prec_recall_best_test.png")
 plt.show()
 
+# %%
+train_pred = model.predict(X_train)
+precisions2, recalls2, thresholds2 = precision_recall_curve(y_train, train_pred)
+
+# %%
+# PRECISION/RECALL PLOT OF BEST
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(8, 6))
+plot_precision_vs_recall(precisions2, recalls2)
+plt.savefig("../out/prec_recall_best_train.png")
+plt.show()
+
+
+# %%
+import pickle
+pkl_filename = "../out/"+BEST+"_model_best.pckl"  
+with open(pkl_filename, 'wb') as file:  
+    pickle.dump(model, file)
+
+# %%
+# CLUSTER TERMS BY SEMANTIC SIMILARITY
+import gensim, logging
+logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
+ 
+corpus = [i.split() for i in df['review_lemma']]
+word_model = gensim.models.Word2Vec(corpus, min_count=1)
+sim_array = word_model.wv.syn0
+
+# %%
+from sklearn.cluster import KMeans
+
+def clustering_on_wordvecs(word_vectors, num_clusters):
+    # Initalize a k-means object and use it to extract centroids
+    kmeans_clustering = KMeans(n_clusters = num_clusters, init='k-means++')
+    idx = kmeans_clustering.fit_predict(word_vectors)
+    
+    return kmeans_clustering.cluster_centers_, idx
+
+centers, clusters = clustering_on_wordvecs(sim_array, 50)
+centroid_map = dict(zip(word_model.wv.index2word, clusters))
+
+# %%
+from sklearn.neighbors import KDTree
+
+def get_top_words(index2word, k, centers, wordvecs):
+    tree = KDTree(wordvecs)
+    closest_points = [tree.query(np.reshape(x, (1, -1)), k=k) for x in centers]
+    closest_words_idxs = [x[1] for x in closest_points]
+    closest_words = {}
+    for i in range(0, len(closest_words_idxs)):
+        closest_words['Cluster #' + str(i)] = [index2word[j] for j in closest_words_idxs[i][0]]
+    df = pd.DataFrame(closest_words)
+    df.index = df.index+1
+    return df
+
+top_words = get_top_words(word_model.wv.index2word, 5000, centers, sim_array)
+
+# %%
